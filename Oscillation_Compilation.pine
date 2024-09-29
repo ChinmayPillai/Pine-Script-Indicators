@@ -1,0 +1,269 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © ChinmayPillai
+
+//@version=5
+indicator(title="Oscillation Compilation", shorttitle="Osc Comp", overlay=false)
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// RSI
+///////////////////////////////////////////////////////////////////////////////////////////////////
+swr = input(true, title="RSI", group="RSI Settings")
+
+ma(source, length, type) =>
+    switch type
+        "SMA" => ta.sma(source, length)
+        "Bollinger Bands" => ta.sma(source, length)
+        "EMA" => ta.ema(source, length)
+        "SMMA (RMA)" => ta.rma(source, length)
+        "WMA" => ta.wma(source, length)
+        "VWMA" => ta.vwma(source, length)
+
+rsiLengthInput = input.int(14, minval=1, title="RSI Length", group="RSI Settings")
+rsiSourceInput = input.source(close, "Source", group="RSI Settings")
+maTypeInput = input.string("SMA", title="MA Type", options=["SMA", "Bollinger Bands", "EMA", "SMMA (RMA)", "WMA", "VWMA"], group="RSI Settings", display = display.data_window)
+maLengthInput = input.int(14, title="MA Length", group="RSI Settings", display = display.data_window)
+bbMultInput = input.float(2.0, minval=0.001, maxval=50, title="BB StdDev", group="RSI Settings", display = display.data_window)
+showDivergence = input.bool(false, title="Show Divergence", group="RSI Settings", display = display.data_window)
+
+up = ta.rma(math.max(ta.change(rsiSourceInput), 0), rsiLengthInput)
+down = ta.rma(-math.min(ta.change(rsiSourceInput), 0), rsiLengthInput)
+rsi = down == 0 ? 100 : up == 0 ? 0 : 100 - (100 / (1 + up / down))
+rsiMA = ma(rsi, maLengthInput, maTypeInput)
+isBB = maTypeInput == "Bollinger Bands"
+
+rsiPlot = plot(swr ? rsi:na, "RSI", color=#7E57C2)
+plot(swr ? rsiMA:na, "RSI-based MA", color=color.yellow)
+rsiUpperBand = hline(70, "RSI Upper Band", color= swr ? #787B86 : na)
+midline = hline(50, "RSI Middle Band", color= swr ? color.new(#787B86, 50) : na)
+rsiLowerBand = hline(30, "RSI Lower Band", color= swr ? #787B86 : na)
+fill(rsiUpperBand, rsiLowerBand, color= swr ? color.rgb(126, 87, 194, 90) : na, title="RSI Background Fill")
+bbUpperBand = plot(swr and isBB ? rsiMA + ta.stdev(rsi, maLengthInput) * bbMultInput : na, title = "RSI Upper Bollinger Band", color=color.green)
+bbLowerBand = plot(swr and isBB ? rsiMA - ta.stdev(rsi, maLengthInput) * bbMultInput : na, title = "RSI Lower Bollinger Band", color=color.green)
+fill(bbUpperBand, bbLowerBand, color= swr and isBB ? color.new(color.green, 90) : na, title="RSI Bollinger Bands Background Fill")
+
+midLinePlot = plot(50, color = na, editable = false, display = display.none)
+fill(rsiPlot, midLinePlot, 100, 70, top_color = color.new(color.green, 0), bottom_color = color.new(color.green, 100),  title = "RSI Overbought Gradient Fill")
+fill(rsiPlot, midLinePlot, 30,  0,  top_color = color.new(color.red, 100), bottom_color = color.new(color.red, 0),      title = "RSI Oversold Gradient Fill")
+
+// Divergence
+lookbackRight = 5
+lookbackLeft = 5
+rangeUpper = 60
+rangeLower = 5
+bearColor = color.red
+bullColor = color.green
+textColor = color.white
+noneColor = color.new(color.white, 100)
+
+plFound = na(ta.pivotlow(rsi, lookbackLeft, lookbackRight)) ? false : true
+phFound = na(ta.pivothigh(rsi, lookbackLeft, lookbackRight)) ? false : true
+_inRange(cond) =>
+	bars = ta.barssince(cond == true)
+	rangeLower <= bars and bars <= rangeUpper
+
+//------------------------------------------------------------------------------
+// Regular Bullish
+// rsi: Higher Low
+
+rsiHL = rsi[lookbackRight] > ta.valuewhen(plFound, rsi[lookbackRight], 1) and _inRange(plFound[1])
+
+// Price: Lower Low
+
+priceLL = low[lookbackRight] < ta.valuewhen(plFound, low[lookbackRight], 1)
+bullCondAlert = priceLL and rsiHL and plFound
+bullCond = showDivergence and bullCondAlert
+
+plot(
+     swr and plFound ? rsi[lookbackRight] : na,
+     offset=-lookbackRight,
+     title="RSI Regular Bullish",
+     linewidth=2,
+     color=(bullCond ? bullColor : noneColor),
+	 display = display.pane
+     )
+
+plotshape(
+	 swr and bullCond ? rsi[lookbackRight] : na,
+	 offset=-lookbackRight,
+	 title="RSI Regular Bullish Label",
+	 text=" Bull ",
+	 style=shape.labelup,
+	 location=location.absolute,
+	 color=bullColor,
+	 textcolor=textColor
+	 )
+
+//------------------------------------------------------------------------------
+// Regular Bearish
+// rsi: Lower High
+
+rsiLH = rsi[lookbackRight] < ta.valuewhen(phFound, rsi[lookbackRight], 1) and _inRange(phFound[1])
+
+// Price: Higher High
+
+priceHH = high[lookbackRight] > ta.valuewhen(phFound, high[lookbackRight], 1)
+
+bearCondAlert = priceHH and rsiLH and phFound
+bearCond = showDivergence and bearCondAlert
+
+plot(
+	 swr and phFound ? rsi[lookbackRight] : na,
+	 offset=-lookbackRight,
+	 title="RSI Regular Bearish",
+	 linewidth=2,
+	 color=(bearCond ? bearColor : noneColor),
+	 display = display.pane
+	 )
+
+plotshape(
+	 swr and bearCond ? rsi[lookbackRight] : na,
+	 offset=-lookbackRight,
+	 title="RSI Regular Bearish Label",
+	 text=" Bear ",
+	 style=shape.labeldown,
+	 location=location.absolute,
+	 color=bearColor,
+	 textcolor=textColor
+	 )
+
+alertcondition(bullCondAlert, title='Regular Bullish Divergence', message="Found a new Regular Bullish Divergence, `Pivot Lookback Right` number of bars to the left of the current bar.")
+alertcondition(bearCondAlert, title='Regular Bearish Divergence', message='Found a new Regular Bearish Divergence, `Pivot Lookback Right` number of bars to the left of the current bar.')
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// MACD
+///////////////////////////////////////////////////////////////////////////////////////////////////
+swm = input(false, title="MACD", group="MACD Settings")
+// Getting inputs
+fast_length = input(title = "Fast Length", defval = 12, group="MACD Settings")
+slow_length = input(title = "Slow Length", defval = 26, group="MACD Settings")
+srcMacd = input(title = "Source", defval = close, group="MACD Settings")
+signal_length = input.int(title = "Signal Smoothing",  minval = 1, maxval = 50, defval = 9, display = display.data_window, group="MACD Settings")
+sma_source = input.string(title = "Oscillator MA Type",  defval = "EMA", options = ["SMA", "EMA"], display = display.data_window, group="MACD Settings")
+sma_signal = input.string(title = "Signal Line MA Type", defval = "EMA", options = ["SMA", "EMA"], display = display.data_window, group="MACD Settings")
+// Calculating
+fast_ma = sma_source == "SMA" ? ta.sma(srcMacd, fast_length) : ta.ema(srcMacd, fast_length)
+slow_ma = sma_source == "SMA" ? ta.sma(srcMacd, slow_length) : ta.ema(srcMacd, slow_length)
+macd = fast_ma - slow_ma
+signal = sma_signal == "SMA" ? ta.sma(macd, signal_length) : ta.ema(macd, signal_length)
+hist = macd - signal
+
+alertcondition(hist[1] >= 0 and hist < 0, title = 'Rising to falling', message = 'The MACD histogram switched from a rising to falling state')
+alertcondition(hist[1] <= 0 and hist > 0, title = 'Falling to rising', message = 'The MACD histogram switched from a falling to rising state')
+
+hline(0, "MACD Zero Line", color = swm ? color.new(#787B86, 50) : na)
+//plot(swm ? 0:na, title = "MACD Zero Line", color = color.new(#787B86, 50), linewidth = 1, style=plot.style_circles)
+plot(swm ? hist:na, title = "MACD Histogram", style = plot.style_columns, color = (hist >= 0 ? (hist[1] < hist ? #26A69A : #B2DFDB) : (hist[1] < hist ? #FFCDD2 : #FF5252)))
+plot(swm ? macd:na,   title = "MACD",   color = #2962FF)
+plot(swm ? signal:na, title = "MACD Signal", color = #FF6D00)
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// ADX
+///////////////////////////////////////////////////////////////////////////////////////////////////
+swx = input(false, title="ADX DI", group = "ADX & DI Settings")
+lenx = input.int(14, minval=1, title="DI Length", group = "ADX & DI Settings")
+lensig = input.int(14, title="ADX Smoothing", minval=1, maxval=50, group = "ADX & DI Settings")
+th = input.int(25, title="ADX Threshold", group = "ADX & DI Settings")
+
+upx = ta.change(high)
+downx = -ta.change(low)
+plusDM = na(upx) ? na : (upx > downx and upx > 0 ? upx : 0)
+minusDM = na(downx) ? na : (downx > upx and downx > 0 ? downx : 0)
+trur = ta.rma(ta.tr, lenx)
+plus = fixnan(100 * ta.rma(plusDM, lenx) / trur)
+minus = fixnan(100 * ta.rma(minusDM, lenx) / trur)
+sum = plus + minus
+adx = 100 * ta.rma(math.abs(plus - minus) / (sum == 0 ? 1 : sum), lensig)
+
+plot(swx ? plus : na, color=color.new(color.green, 0), title="+DI")
+plot(swx ? minus : na, color=color.new(color.red, 0), title="-DI")
+plot(swx ? adx : na, color=color.new(color.white, 0), title="ADX")
+//plot(swx ? th : na, color=color.new(color.gray, 0), title="ADX Threshold")
+hline(th, "ADX Threshold", color= swx ? #787B86 : na)
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// Accumulation/Distribution
+///////////////////////////////////////////////////////////////////////////////////////////////////
+swad = input(false, title="Accumulation/Distribution", group = "Accumulation/Distribution Settings")
+var cumVolAD = 0.
+cumVolAD += nz(volume)
+if barstate.islast and cumVolAD == 0
+    runtime.error("No volume is provided by the data vendor.")
+ad = ta.cum(close==high and close==low or high==low ? 0 : ((2*close-low-high)/(high-low))*volume)
+plot(swad ? ad:na, title = "Accumulation/Distribution", color=#999915)
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// On Balance Volume
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+swobv = input(false, title="On Balance Volume", group = "OBV Settings")
+var cumVol = 0.
+cumVol += nz(volume)
+if barstate.islast and cumVol == 0
+    runtime.error("No volume is provided by the data vendor.")
+src = close
+obv = ta.cum(math.sign(ta.change(src)) * volume)
+plot(swobv ? obv: na, color=#2962FF, title="OnBalanceVolume")
+
+maV(source, length, type) =>
+    switch type
+        "SMA" => ta.sma(source, length)
+        "EMA" => ta.ema(source, length)
+        "SMMA (RMA)" => ta.rma(source, length)
+        "WMA" => ta.wma(source, length)
+        "VWMA" => ta.vwma(source, length)
+
+typeMA = input.string(title = "Smoothing Method", defval = "SMA", options=["SMA", "EMA", "SMMA (RMA)", "WMA", "VWMA"], group = "OBV Settings", display = display.data_window)
+smoothingLength = input.int(title = "Smoothing Length", defval = 5, minval = 1, maxval = 100, group = "OBV Settings", display = display.data_window)
+
+smoothingLine = maV(obv, smoothingLength, typeMA)
+plot(swobv ? smoothingLine:na, title="OBV Smoothing Line", color=#f37f20, display=display.none)
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// Stochastic
+///////////////////////////////////////////////////////////////////////////////////////////////////
+sws = input(false, title="STOCHASTIC", group = "Stochastic Settings")
+periodK = input.int(14, title="K", minval=1, group = "Stochastic Settings")
+periodD = input.int(3, title="D", minval=1, group = "Stochastic Settings")
+smoothK = input.int(3, title="Smooth", minval=1, group = "Stochastic Settings")
+k = ta.sma(ta.stoch(close, high, low, periodK), smoothK)
+d = ta.sma(k, periodD)
+plot(sws ? k : na, title="Stocastic %K", color=color.blue)
+plot(sws ? d : na, title="Stocastic %D", color=color.orange)
+//h0 = plot(sws or swr ? 80 : na)
+//h1 = plot(sws or swr ? 20 : na)
+//h0 = plot(sws ? 80 : na, title="Stocastic H0")
+//h1 = plot(sws ? 20 : na, title="Stocastic H1")
+h0 = hline(80, "Stocastic H0", color= sws ? #787B86 : na)
+h1 = hline(20, "Stocastic H1", color= sws ? #787B86 : na)
+fill(h0, h1, color= sws ? color.new(color.purple, 90):na, title = "Stocastic Background Fill")
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+//// Aroon
+///////////////////////////////////////////////////////////////////////////////////////////////////
+swa = input(false, title="AROON", group = "Aroon Settings")
+length = input.int(14, minval=1, group = "Aroon Settings")
+upper = 100 * (ta.highestbars(high, length+1) + length) / length
+lower = 100 * (ta.lowestbars(low, length+1) + length) / length
+midp = 0
+oscillator = upper - lower
+osc = plot(swa ? oscillator : na, title="Aroon Osc", color = color.white)
+mp = plot(swa ? midp : na, title="Aroon Mp", color=na)
+//top = plot(swa ? 85 : na, title="Aroon Top")
+//bottom = plot(swa ? -85 : na, title="Aroon Bot")
+top = hline(85, "Aroon Top", color= swa ? #787B86 : na)
+mp2 = hline(0, "Aroon Mid", color= swa ? #787B86 : na)
+bottom = hline(-85, "Aroon Bot", color= swa ? #787B86 : na)
+co = oscillator >= 95 and oscillator[1] >= oscillator ? color.red : oscillator <= -88 ? color.green: na
+bgcolor(swa and not na(co) ? color.new(co, 70) : na, title="Aroon Bg")
+fill(osc, mp, color = color.new(color.blue, 85))
+fill(top, bottom, color= swa ? color.new(color.purple, 90):na, title = "Aroon Background Fill")
